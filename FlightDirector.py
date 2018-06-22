@@ -365,6 +365,7 @@ def checkPanic():
             print "Waiting for disarming..."
             time.sleep(2)
         moveOnFlag = False
+        vehicle.close()
 
         while True: #Continually transmitt location until power fails or manually interrupted
             print_location()
