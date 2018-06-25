@@ -6,6 +6,8 @@ import sys
 import argparse
 import math
 import signal
+import _thread
+import socket
 
 
 ######################################################################
@@ -29,6 +31,10 @@ totalPods = 1 # how many pods are there?
 podsRecovered = 1-totalPods # Determines which location the drone will return to before hunting for the nearest pod, a negative number signifies a return to home
 funnelSize = 0.25 #Radius of the funnel in meters
 grabDist = 0.25 #Distance from the pod from where we can grab, in meters
+recvData = [] #the recieving thread adds to this in the format ((x, y), z, timestamp), where any value is none if not known
+
+vision = socket.socket()
+vision.bind(("127.0.0.1", 6565))
 
 
 ######################################################################
@@ -154,8 +160,37 @@ def getLastPodLocation():
         return home_loc
 
 
+def recvDat(conn):
+    dat = conn.recv(1024).decode("ASCII").split("/")
+    if 'None' not in dat[0]:
+        x = int(dat[0])
+    else:
+        x = "None"
+    if "None" not in dat[1]:
+        y = int(dat[1])
+    else:
+        y = "None"
+    if "None" not in dat[2]:
+        z = int(dat[2])
+    else:
+        z = None
+    xy = (x,y)
+    if "None" in xy:
+        xy = None
+    recvData = (xy, z, time.time())
+
+
+def connectVision():
+    vision.listen(2) #this makes the server listen for two connections (for some reason, it doesn't work with just one)
+    clientSocket, addr = vision.accept()
+    _thread.start_new_thread(recvDat, (clientSocket,))
+
+
 def podDist():
-    return -1 #Distance to pod
+    if time.time() - recvData[2] > 1.5:
+        print "Data stale! Is the vision program running?"
+        return None
+    return recvData[1]
 
 
 def podRelease():
@@ -178,7 +213,10 @@ def getPodLoc():
 
 
 def getPodPos():
-    return (0, 0) # Returns the relative (x, y) of the pod, via vision. Returns None if not found or data stale
+    if time.time() - recvData[2] > 1.5:
+        print "Data stale! Is the vision program running?"
+        return None
+    return recvData[0]
 
 
 def getPodDis():
@@ -565,9 +603,10 @@ def end_program(*args):
             break
         time.sleep(1)
 
-    # Close the connection to the drone
+    # Close the connection to the drone and to the vision program
     vehicle.close()
-
+    vision.close()
+    
     # Exit the program
     print "\nTEST COMPLETE\n"
     quit()
