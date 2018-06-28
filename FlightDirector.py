@@ -212,6 +212,16 @@ def getPodLoc():
     return (0, 0) # Returns the (lat, lon) of the nearest broadcasting pod. Returns None if not found
 
 
+def testGoTo():
+    # Goes to the location of the first recieved signal
+    while not getPodLoc():
+        time.sleep(1)
+    lat, lon = getPodLoc()
+    print "%s, %s" %(lat, lon)
+    vehicle.simple_goto(LocationGlobalRelative(lat, lon, 5))
+    wait_for_arrival(lat, lon)
+
+
 def getPodPos():
     if time.time() - recvData[2] > 1.5:
         print "Data stale! Is the vision program running?"
@@ -681,27 +691,28 @@ home_lat = home_loc.global_frame.lat
 home_lon = home_loc.global_frame.lon
 # pause_for_input()
 
+testGoTo()
 
 # Goto first target location (O+5m north, O+5m east, O+5m alt)
 
-location1 = getLoc(home_loc, 5, 5, 5)
-print "** Going to first target location **"
-vehicle.simple_goto(location1, groundspeed=speed)
-wait_for_arrival(location1.lat, location1.lon)
+#location1 = getLoc(home_loc, 5, 5, 5)
+#print "** Going to first target location **"
+#vehicle.simple_goto(location1, groundspeed=speed)
+#wait_for_arrival(location1.lat, location1.lon)
 # pause_for_input()
 
 # Goto second target location (O-5m north, O+5m east, O+5m alt)
-location2 = getLoc(home_loc, -5, 5, 5)
-print "** Going to second target location **"
-vehicle.simple_goto(location2, groundspeed=speed)
-wait_for_arrival(location2.lat, location2.lon)
+#location2 = getLoc(home_loc, -5, 5, 5)
+#print "** Going to second target location **"
+#vehicle.simple_goto(location2, groundspeed=speed)
+#wait_for_arrival(location2.lat, location2.lon)
 # pause_for_input()
 
 # Return to the landing zone (O north, O east, O+5m alt)
-location3 = getLoc(home_loc, 0, 0, 5)
-print "** Returning to the landing zone **"
-vehicle.simple_goto(location3, groundspeed=speed)
-wait_for_arrival(home_lat, home_lon)
+#location3 = getLoc(home_loc, 0, 0, 5)
+#print "** Returning to the landing zone **"
+#vehicle.simple_goto(location3, groundspeed=speed)
+#wait_for_arrival(home_lat, home_lon)
 # pause_for_input()
 
 # Fly the drone in a box maneuver
