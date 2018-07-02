@@ -31,10 +31,12 @@ totalPods = 1 # how many pods are there?
 podsRecovered = 1-totalPods # Determines which location the drone will return to before hunting for the nearest pod, a negative number signifies a return to home
 funnelSize = 0.25 #Radius of the funnel in meters
 grabDist = 0.25 #Distance from the pod from where we can grab, in meters
-recvData = [None, None, time.time()] #the recieving thread adds to this in the format ((x, y), z, timestamp), where any value is none if not known
+recvData = [None, None, time.time()] #the recieving thread adds to this in the format ((x, y), z, timestamp), where any value is None if not known
 
 vision = socket.socket()
 vision.bind(("127.0.0.1", 6565))
+
+
 
 
 ######################################################################
@@ -162,20 +164,20 @@ def getLastPodLocation():
 
 def recvDat(conn):
     dat = conn.recv(1024).decode("ASCII").split("/")
-    if 'None' not in dat[0]:
+    if dat[0] != "":
         x = int(dat[0])
     else:
-        x = "None"
-    if "None" not in dat[1]:
+        x = "n"
+    if dat[1] != "":
         y = int(dat[1])
     else:
-        y = "None"
-    if "None" not in dat[2]:
+        y = "n"
+    if dat[2] != "":
         z = int(dat[2])
     else:
         z = None
     xy = (x,y)
-    if "None" in xy:
+    if "n" in xy:
         xy = None
     recvData = (xy, z, time.time())
 
