@@ -6,8 +6,10 @@ import sys
 import argparse
 import math
 import signal
-import _thread
+import multiprocessing
 import socket
+import subprocess
+import rf95
 
 
 ######################################################################
@@ -34,8 +36,18 @@ grabDist = 0.25 #Distance from the pod from where we can grab, in meters
 recvData = [None, None, time.time()] #the recieving thread adds to this in the format ((x, y), z, timestamp), where any value is None if not known
 
 vision = socket.socket()
-vision.bind(("127.0.0.1", 6565))
+vision.bind(("127.0.0.1", 4661))
 
+radio = rf95.RF95(0, 25)
+if not radio.init():
+    print "Radio not found, aborting"
+    quit(1)
+else:
+    print "Radio found"
+
+radio.set_tx_power(23)
+radio.set_modem_config(rf95.Bw125Cr45Sf128)
+radioset_frequency(915.0)
 
 
 
@@ -163,29 +175,39 @@ def getLastPodLocation():
 
 
 def recvDat(conn):
-    dat = conn.recv(1024).decode("ASCII").split("/")
-    if dat[0] != "":
-        x = int(dat[0])
-    else:
-        x = "n"
-    if dat[1] != "":
-        y = int(dat[1])
-    else:
-        y = "n"
-    if dat[2] != "":
-        z = int(dat[2])
-    else:
-        z = None
-    xy = (x,y)
-    if "n" in xy:
-        xy = None
-    recvData = (xy, z, time.time())
+    while True:
+        try:
+            dat = conn.recv(1024).decode("ASCII").split("/")
+        except:
+            print "Error on recieving data!"
+            break
+        if dat != [""]:
+            print dat
+            if dat[0] != "":
+                x = int(dat[0])
+            else:
+                x = "n"
+            if dat[1] != "":
+                y = int(dat[1])
+            else:
+                y = "n"
+            if dat[2] != "":
+                z = int(dat[2])
+            else:
+                z = None
+            xy = (x,y)
+            if "n" in xy:
+                xy = None
+            recvData = (xy, z, time.time())
 
 
 def connectVision():
+    print "Starting vision thread"
     vision.listen(2) #this makes the server listen for two connections (for some reason, it doesn't work with just one)
+    subprocess.call(["bash", "bash.sh"])
+    time.sleep
     clientSocket, addr = vision.accept()
-    _thread.start_new_thread(recvDat, (clientSocket,))
+    recvDat(clientSocket)
 
 
 def podDist():
@@ -211,7 +233,9 @@ def dropPod():
 
 
 def getPodLoc():
-    return (0, 0) # Returns the (lat, lon) of the nearest broadcasting pod. Returns None if not found
+    if not radio.available():
+        return None
+    return radio.recv() # Returns the (lat, lon) of the nearest broadcasting pod. Returns None if not found
 
 
 def testGoTo():
@@ -225,6 +249,17 @@ def testGoTo():
     print "Arrived"
 
 
+def testSee():
+    while True:
+        #Prints out location of object, if it can see it
+        dat = getPodPos()
+        dat2 = getPodDis()
+        if dat and dat2:
+            print "x: %s\ty:%s\tz: %s" %(dat[0], dat[1], dat2)
+        else:
+            print "Can't see pod!"
+
+
 def getPodPos():
     if time.time() - recvData[2] > 1.5:
         print "Data stale! Is the vision program running?"
@@ -235,6 +270,7 @@ def getPodPos():
 def getPodDis():
     pos = getPodPos()
     if pos == None:
+        print "Can't resolve distance!"
         return None
     return ((pos[0]**2)+(pos[1]**2))**0.5
 
@@ -309,17 +345,17 @@ def locatePod():
 
 
 def retrievePod(layers=0):
-    if layers == 0:
-        loc = getLastPodLocation() #Go to last known location of the pod
-        vehicle.simple_goto(loc)
-        wait_for_arrival(loc.lat, loc.lon)
-        locatePod() #Either we find the pod or we've put in our best efforts
+    #if layers == 0:
+     #   loc = getLastPodLocation() #Go to last known location of the pod
+      #  vehicle.simple_goto(loc)
+       # wait_for_arrival(loc.lat, loc.lon)
+        #locatePod() #Either we find the pod or we've put in our best efforts
     if layers < 3:
         if getPodLoc():
             print "Pod sighted!"
             print "Engaging pod..."
             condition_yaw(0) #make the drone face north, so that the vision system's (x,y) coordinates line up with the NED coordinate system
-            kP = -0.5
+            kP = -0.005
             dist = 999
             ticker = 60
             if getPodDis() != None:
@@ -601,6 +637,8 @@ def pause_for_input():
 
 # Signal handler for when a keyboard interrupt occurs
 def end_program(*args):
+    vision.close()
+    radio.set_mode_idle()
     # Set the mode to RETURN TO LAND and wait before closing
     while not vehicle.mode == 'LAND':
         vehicle.mode = VehicleMode("LAND")
@@ -618,7 +656,6 @@ def end_program(*args):
 
     # Close the connection to the drone and to the vision program
     vehicle.close()
-    vision.close()
     
     # Exit the program
     print "\nTEST COMPLETE\n"
@@ -647,7 +684,7 @@ connection_string = '/dev/ttyACM0'
 baud_rate = 115200
 # baud_rate = 57600
 print "** Connecting to vehicle on: %s **" % connection_string
-
+_thread.start_new_thread(connectVision, ())
 # vehicle = connect(connection_string, wait_ready=True)
 vehicle = connect(connection_string, baud=baud_rate)
 batt = vehicle.battery
@@ -680,13 +717,13 @@ def listener2(self, name, message):
 drone_info()
 
 # Set flight parameters
-alt = 20    # (in meters)
-speed = 5   # (in meters/second)
+#alt = 20    # (in meters)
+#speed = 5   # (in meters/second)
 
 
 # Arm the drone and takeoff
 drone_arm()
-drone_takeoff(30)
+drone_takeoff(5)
 
 # Get the drone's home location
 home_loc = vehicle.location
@@ -695,6 +732,9 @@ home_lon = home_loc.global_frame.lon
 # pause_for_input()
 
 testGoTo()
+retrievePod()
+#testSee() #test vision until ctrl-c'd
+                     
 
 # Goto first target location (O+5m north, O+5m east, O+5m alt)
 
