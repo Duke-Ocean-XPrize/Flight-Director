@@ -235,7 +235,10 @@ def dropPod():
 def getPodLoc():
     if not radio.available():
         return None
-    return radio.recv() # Returns the (lat, lon) of the nearest broadcasting pod. Returns None if not found
+    dat = radio.recv().split(" ")
+    if dat[2] == -1:
+        return None
+    return [float(dat[0])/1000000, float(dat[1])/1000000]
 
 
 def testGoTo():
