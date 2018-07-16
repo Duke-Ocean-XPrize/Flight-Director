@@ -34,7 +34,7 @@ podsRecovered = 1-totalPods # Determines which location the drone will return to
 funnelSize = 0.25 #Radius of the funnel in meters
 grabDist = 0.25 #Distance from the pod from where we can grab, in meters
 recvData = [None, None, time.time()] #the recieving thread adds to this in the format ((x, y), z, timestamp), where any value is None if not known
-
+recvRadioBuffer = []
 vision = socket.socket()
 vision.bind(("127.0.0.1", 4661))
 
@@ -164,6 +164,15 @@ def getNextPodLocation():
         return home_loc
 
 
+def recvRadio():
+    while True:
+        if not radio.available():
+            pass
+        dat = radio.recv().split(" ")
+        recvRadioBuffer.append(dat)
+        print dat
+
+
 def getLastPodLocation():
     if podsRecovered < len(podLocs) and podsRecovered >= 0:
         loc = podLocs[podsRecovered]
@@ -233,12 +242,11 @@ def dropPod():
 
 
 def getPodLoc():
-    if not radio.available():
-        return None
-    dat = radio.recv().split(" ")
-    if dat[2] == -1:
-        return None
-    return [float(dat[0])/1000000, float(dat[1])/1000000]
+    if int(recvRadioBuffer[0][0]) > 1:
+        dat = recvRadioBuffer.pop(0)
+        if dat[2] == -1:
+            return None
+        return [float(dat[0])/1000000, float(dat[1])/1000000]
 
 
 def testGoTo():
@@ -688,6 +696,7 @@ baud_rate = 115200
 # baud_rate = 57600
 print "** Connecting to vehicle on: %s **" % connection_string
 _thread.start_new_thread(connectVision, ())
+_thread.start_new_thread(recvRadio, ())
 # vehicle = connect(connection_string, wait_ready=True)
 vehicle = connect(connection_string, baud=baud_rate)
 batt = vehicle.battery
@@ -725,8 +734,8 @@ drone_info()
 
 
 # Arm the drone and takeoff
-drone_arm()
-drone_takeoff(5)
+#drone_arm()
+#drone_takeoff(5)
 
 # Get the drone's home location
 home_loc = vehicle.location
@@ -734,9 +743,9 @@ home_lat = home_loc.global_frame.lat
 home_lon = home_loc.global_frame.lon
 # pause_for_input()
 
-testGoTo()
-retrievePod()
-#testSee() #test vision until ctrl-c'd
+#testGoTo()
+#retrievePod()
+testSee() #test vision until ctrl-c'd
                      
 
 # Goto first target location (O+5m north, O+5m east, O+5m alt)
