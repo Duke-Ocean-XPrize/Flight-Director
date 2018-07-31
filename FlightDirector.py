@@ -6,7 +6,7 @@ import sys
 import argparse
 import math
 import signal
-import multiprocessing
+import _thread
 import socket
 import subprocess
 import rf95
@@ -35,8 +35,9 @@ funnelSize = 0.25 #Radius of the funnel in meters
 grabDist = 0.25 #Distance from the pod from where we can grab, in meters
 recvData = [None, None, time.time()] #the recieving thread adds to this in the format ((x, y), z, timestamp), where any value is None if not known
 recvRadioBuffer = []
+loraPodLoc = None
 vision = socket.socket()
-vision.bind(("127.0.0.1", 4661))
+vision.bind(("127.0.0.1", 4444))
 
 radio = rf95.RF95(0, 25)
 if not radio.init():
@@ -47,7 +48,7 @@ else:
 
 radio.set_tx_power(23)
 radio.set_modem_config(rf95.Bw125Cr45Sf128)
-radioset_frequency(915.0)
+radio.set_frequency(915.0)
 
 
 
@@ -165,12 +166,19 @@ def getNextPodLocation():
 
 
 def recvRadio():
+    global loraPodLoc
     while True:
         if not radio.available():
             pass
-        dat = radio.recv().split(" ")
-        recvRadioBuffer.append(dat)
-        print dat
+        else:
+            dat = radio.recv()
+            dat = dat[4:]
+            print dat
+	    dat = ''.join(chr(x) for x in dat)
+            recvRadioBuffer.append(dat)
+            print dat
+            loraPodLoc = getPodLoc()
+            print loraPodLoc
 
 
 def getLastPodLocation():
@@ -184,6 +192,7 @@ def getLastPodLocation():
 
 
 def recvDat(conn):
+    global recvData
     while True:
         try:
             dat = conn.recv(1024).decode("ASCII").split("/")
@@ -192,16 +201,16 @@ def recvDat(conn):
             break
         if dat != [""]:
             print dat
-            if dat[0] != "":
-                x = int(dat[0])
+            if dat[0] != "n":
+                x = float(dat[0])
             else:
                 x = "n"
-            if dat[1] != "":
-                y = int(dat[1])
+            if dat[1] != "n":
+                y = float(dat[1])
             else:
                 y = "n"
-            if dat[2] != "":
-                z = int(dat[2])
+            if dat[2] != "n":
+                z = float(dat[2])
             else:
                 z = None
             xy = (x,y)
@@ -213,15 +222,15 @@ def recvDat(conn):
 def connectVision():
     print "Starting vision thread"
     vision.listen(2) #this makes the server listen for two connections (for some reason, it doesn't work with just one)
-    subprocess.call(["bash", "bash.sh"])
-    time.sleep
+    _thread.start_new_thread(subprocess.call,(["bash", "bash.sh"],))
+    print "Waiting on connection"
     clientSocket, addr = vision.accept()
     recvDat(clientSocket)
 
 
 def podDist():
     if time.time() - recvData[2] > 1.5:
-        print "Data stale! Is the vision program running?"
+        #print "Data stale! Is the vision program running?"
         return None
     return recvData[1]
 
@@ -243,17 +252,19 @@ def dropPod():
 
 def getPodLoc():
     if int(recvRadioBuffer[0][0]) > 1:
-        dat = recvRadioBuffer.pop(0)
-        if dat[2] == -1:
+        dat = recvRadioBuffer.pop(0).split(" ")
+        print dat
+        if dat[3] == "-1":
+            print "Buoy GPS has no fix!"
             return None
-        return [float(dat[0])/1000000, float(dat[1])/1000000]
+        return [float(dat[1])/1000000, float(dat[2])/1000000]
 
 
 def testGoTo():
     # Goes to the location of the first recieved signal
-    while not getPodLoc():
+    while not loraPodLoc:
         time.sleep(1)
-    lat, lon = getPodLoc()
+    lat, lon = loraPodLoc
     print "%s, %s" %(lat, lon)
     vehicle.simple_goto(LocationGlobalRelative(lat, lon, 5))
     wait_for_arrival(lat, lon)
@@ -264,24 +275,31 @@ def testSee():
     while True:
         #Prints out location of object, if it can see it
         dat = getPodPos()
-        dat2 = getPodDis()
+        dat2 = getPodZ()
         if dat and dat2:
             print "x: %s\ty:%s\tz: %s" %(dat[0], dat[1], dat2)
         else:
-            print "Can't see pod!"
+            pass
+           # print "Can't see pod!"
 
 
 def getPodPos():
     if time.time() - recvData[2] > 1.5:
-        print "Data stale! Is the vision program running?"
+       # print "Data stale! Is the vision program running?"
         return None
     return recvData[0]
+
+
+def getPodZ():
+    if time.time() - recvData[2] > 1.5:
+        return None
+    return recvData[1]
 
 
 def getPodDis():
     pos = getPodPos()
     if pos == None:
-        print "Can't resolve distance!"
+       # print "Can't resolve distance!"
         return None
     return ((pos[0]**2)+(pos[1]**2))**0.5
 
@@ -371,33 +389,33 @@ def retrievePod(layers=0):
             ticker = 60
             if getPodDis() != None:
                 dist = getPodDis()
-            while dist > funnelSize:
+           # while dist > funnelSize:
                 #The documentation says that facing direction of travel is the default behavior, it will return to default behavior on "changing the command used for movement",
                 #but there is no "safe way" to return to default.
-                condition_yaw(0) #I have no idea how much the yaw needs to be set, but I'm confident that I cannot change yaw too much
-                if getPodLoc():
-                    coords = getPodLoc()
-                    x_speed = kP*coords[0]
-                    y_speed = kP*coords[1]
-                    send_ned_velocity_inst(x_speed, y_speed, 0)
-                    condition_yaw(0)
-                    ticker = 60
-                else:
-                    send_ned_velocity_inst(0, 0, 0)
-                    condition_yaw(0)
-                    ticker -= 1
-                    time.sleep(1)
-                if getPodDis() != None:
-                    dist = getPodDis()
-                if ticker == 0:
-                    break
+            #    condition_yaw(0) #I have no idea how much the yaw needs to be set, but I'm confident that I cannot change yaw too much
+             #   if getPodLoc():
+             #       coords = getPodLoc()
+             #       x_speed = kP*coords[0]
+             #       y_speed = kP*coords[1]
+             #       send_ned_velocity_inst(x_speed, y_speed, 0)
+             #       condition_yaw(0)
+             #       ticker = 60
+             #   else:
+             #       send_ned_velocity_inst(0, 0, 0)
+             #       condition_yaw(0)
+             #       ticker -= 1
+             #       time.sleep(1)
+             #   if getPodDis() != None:
+             #       dist = getPodDis()
+             #   if ticker == 0:
+             #       break
             if ticker == 0:
                 print "Lost pod while engaging"
                 locatePod()
             else:
                 print "Over pod, moving to grab"
                 if podDist() != None:
-                    dist1 = podDist()
+                    dist1 = getPodZ()
                 while dist1 > grabDist:
                     if getPodLoc():
                         coords = getPodLoc()
@@ -657,7 +675,7 @@ def end_program(*args):
 
     # Wait for the drone to land
     print "** Drone is landing **"
-    while True:
+    while False:
         alt = vehicle.location.global_relative_frame.alt
         print "Altitude: %s" % alt
         if alt <= 0.05:
@@ -743,11 +761,12 @@ home_lat = home_loc.global_frame.lat
 home_lon = home_loc.global_frame.lon
 # pause_for_input()
 
-#testGoTo()
+testGoTo()
 #retrievePod()
-testSee() #test vision until ctrl-c'd
+#testSee() #test vision until ctrl-c'd
                      
-
+locatePod()
+retrievePod()
 # Goto first target location (O+5m north, O+5m east, O+5m alt)
 
 #location1 = getLoc(home_loc, 5, 5, 5)
