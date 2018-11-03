@@ -36,8 +36,8 @@ grabDist = 0.25 #Distance from the pod from where we can grab, in meters
 recvData = [None, None, time.time()] #the recieving thread adds to this in the format ((x, y), z, timestamp), where any value is None if not known
 recvRadioBuffer = []
 loraPodLoc = None
-vision = socket.socket()
-vision.bind(("127.0.0.1", 4444))
+
+#vision = VisionSystem.instance()
 
 radio = rf95.RF95(0, 25)
 if not radio.init():
@@ -62,7 +62,7 @@ radio.set_frequency(915.0)
 def drone_arm():
     global moveOnFlag
     global errorCount
-    
+
     # Don't arm until autopilot is ready
     print "** Basic pre-arm checks **"
     timer = 20
@@ -363,7 +363,7 @@ def locatePod():
             if getPodLoc():
                 break
             #If at first you don't succeed...
-            elif pod_acquiesce_attempts < 3: 
+            elif pod_acquiesce_attempts < 3:
                 print "Pod not sighted - retrying" #...try, try again
                 print "Total attempts: %s" %pod_acquiesce_attempts
                 pod_acquiesce_attempts += 1
@@ -486,7 +486,7 @@ def checkPanic():
         while True: #Continually transmitt location until power fails or manually interrupted
             print_location()
             time.sleep(1)
-        
+
 
 
 
@@ -553,7 +553,7 @@ def box_maneuver():
     time.sleep(2)
 
 
-# Mavlink code to set the velocity and duration of a movement 
+# Mavlink code to set the velocity and duration of a movement
 def send_ned_velocity(velocity_x, velocity_y, velocity_z, duration):
     """
     Move vehicle in direction based on specified velocity vectors.
@@ -572,7 +572,7 @@ def send_ned_velocity(velocity_x, velocity_y, velocity_z, duration):
     vehicle.send_mavlink(msg)
     time.sleep(duration%1)
 
-    # send command to vehicle on 1 Hz cycle    
+    # send command to vehicle on 1 Hz cycle
     for x in range(0, int(duration)):
         vehicle.send_mavlink(msg)
         print_location()
@@ -685,7 +685,7 @@ def end_program(*args):
 
     # Close the connection to the drone and to the vision program
     vehicle.close()
-    
+
     # Exit the program
     print "\nTEST COMPLETE\n"
     quit()
@@ -764,7 +764,7 @@ home_lon = home_loc.global_frame.lon
 testGoTo()
 #retrievePod()
 #testSee() #test vision until ctrl-c'd
-                     
+
 locatePod()
 retrievePod()
 # Goto first target location (O+5m north, O+5m east, O+5m alt)
