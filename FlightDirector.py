@@ -1,5 +1,6 @@
 from dronekit import *
 from pymavlink import mavutil
+from threading import Thread
 
 import time
 import sys
@@ -10,6 +11,7 @@ import _thread
 import socket
 import subprocess
 import rf95
+import zmq
 
 
 ######################################################################
@@ -36,8 +38,7 @@ grabDist = 0.25 #Distance from the pod from where we can grab, in meters
 recvData = [None, None, time.time()] #the recieving thread adds to this in the format ((x, y), z, timestamp), where any value is None if not known
 recvRadioBuffer = []
 loraPodLoc = None
-
-#vision = VisionSystem.instance()
+vision_connection_string = "tcp://*:5555"
 
 radio = rf95.RF95(0, 25)
 if not radio.init():
@@ -50,7 +51,9 @@ radio.set_tx_power(23)
 radio.set_modem_config(rf95.Bw125Cr45Sf128)
 radio.set_frequency(915.0)
 
-
+context = zmq.Context()
+socket = context.socket(zmq.SUB)
+socket.connect(vision_connection_string)
 
 ######################################################################
 ##                                                                  ##
@@ -99,7 +102,6 @@ def drone_arm():
     # Drone is armed and ready to fly
     print "** Ready to takeoff (if safety switch is off...) **"
 
-
 # Takeoff to specified height in meters
 def drone_takeoff(aTargetAltitude):
     global moveOnFlag
@@ -137,8 +139,6 @@ def drone_takeoff(aTargetAltitude):
         print "=== Timeout on drone altitude check ==="
         end_program()
 
-
-
 def get_loc(currentLoc, dNorth, dEast, alt):
     """Returns a location offset by a certain amount from the current position. Inaccurate over very long distances or near the poles."""
     rad = 6378137.0
@@ -146,14 +146,12 @@ def get_loc(currentLoc, dNorth, dEast, alt):
     dLon = dEast/(rad*math.cos(math.pi*currentLoc.lat/180))
     return LocationGlobal(currentLoc.lat+(dLat*180/math.pi), currentLoc.lon+(dLon*180/math.pi), currentLoc.alt+alt)
 
-
 def get_distance_meters(locA, locB):
     """Gets the distance between two location objects, in meters"""
     dlat = locB.lat - locA.lat
     dlon = locB.lon - locA.lon
     dalt = locB.alt - locA.alt
     return math.sqrt((dlat**2) + (dlon**2) + (dalt**2)) * 1.1131195e5
-
 
 def getNextPodLocation():
     if podsDropped < len(podLocs):
@@ -163,7 +161,6 @@ def getNextPodLocation():
     else:
         podsDropped += 1
         return home_loc
-
 
 def recvRadio():
     global loraPodLoc
@@ -180,7 +177,6 @@ def recvRadio():
             loraPodLoc = getPodLoc()
             print loraPodLoc
 
-
 def getLastPodLocation():
     if podsRecovered < len(podLocs) and podsRecovered >= 0:
         loc = podLocs[podsRecovered]
@@ -190,12 +186,11 @@ def getLastPodLocation():
         podsRecovered += 1
         return home_loc
 
-
-def recvDat(conn):
+def recvDat():
     global recvData
     while True:
         try:
-            dat = conn.recv(1024).decode("ASCII").split("/")
+            dat = socket.recv(1024).decode("ASCII").split("/")
         except:
             print "Error on recieving data!"
             break
@@ -218,15 +213,12 @@ def recvDat(conn):
                 xy = None
             recvData = (xy, z, time.time())
 
-
 def connectVision():
     print "Starting vision thread"
-    vision.listen(2) #this makes the server listen for two connections (for some reason, it doesn't work with just one)
+    process = Thread(target=vision.run)
     _thread.start_new_thread(subprocess.call,(["bash", "bash.sh"],))
     print "Waiting on connection"
-    clientSocket, addr = vision.accept()
-    recvDat(clientSocket)
-
+    recvDat()
 
 def podDist():
     if time.time() - recvData[2] > 1.5:
@@ -234,21 +226,17 @@ def podDist():
         return None
     return recvData[1]
 
-
 def podRelease():
     pass # blocking until pod is confirmed released, does not return anything
 
-
 def podGrab():
     pass #same as above, but in reverse
-
 
 def dropPod():
     loc = getNextPodLocation()
     vehicle.simple_goto(loc)
     wait_for_arrival(loc.lat, loc.lon)
     podRelease()
-
 
 def getPodLoc():
     if int(recvRadioBuffer[0][0]) > 1:
@@ -259,7 +247,6 @@ def getPodLoc():
             return None
         return [float(dat[1])/1000000, float(dat[2])/1000000]
 
-
 def testGoTo():
     # Goes to the location of the first recieved signal
     while not loraPodLoc:
@@ -269,7 +256,6 @@ def testGoTo():
     vehicle.simple_goto(LocationGlobalRelative(lat, lon, 5))
     wait_for_arrival(lat, lon)
     print "Arrived"
-
 
 def testSee():
     while True:
@@ -282,19 +268,16 @@ def testSee():
             pass
            # print "Can't see pod!"
 
-
 def getPodPos():
     if time.time() - recvData[2] > 1.5:
        # print "Data stale! Is the vision program running?"
         return None
     return recvData[0]
 
-
 def getPodZ():
     if time.time() - recvData[2] > 1.5:
         return None
     return recvData[1]
-
 
 def getPodDis():
     pos = getPodPos()
@@ -302,7 +285,6 @@ def getPodDis():
        # print "Can't resolve distance!"
         return None
     return ((pos[0]**2)+(pos[1]**2))**0.5
-
 
 def locatePod():
     pod_acquiesce_attempts = 1
@@ -371,7 +353,6 @@ def locatePod():
                 print "Pod not sighted after three attempts - abandoning pod" #...give up
                 print "Pod's last known position: %s, %s" %(loc.lat, loc.lon)
                 break
-
 
 def retrievePod(layers=0):
     #if layers == 0:
@@ -447,7 +428,6 @@ def retrievePod(layers=0):
         (lat, lon) = getPodLoc()
         print "Last known location: %s, %s" %(lat, lon)
 
-
 def checkAbort():
     if batt.level < abortLevel:
         print "Aborting mission due to low battery"
@@ -487,9 +467,6 @@ def checkPanic():
             print_location()
             time.sleep(1)
 
-
-
-
 # Display some basic status information about the drone
 def drone_info():
     # print " Type: %s" % vehicle.vehicle_type
@@ -501,7 +478,6 @@ def drone_info():
                                 vehicle.location.global_relative_frame.lon)
     print " Relative Alt: %s" % vehicle.location.global_relative_frame.alt
     print " Absolute Alt: %s" % vehicle.location.global_frame.alt
-
 
 # Display a full list of information about the drone
 def drone_info_complete():
@@ -528,7 +504,6 @@ def drone_info_complete():
     print "Mode: %s" % vehicle.mode.name    # settable
     print "Armed: %s" % vehicle.armed    # settable
 
-
 # Prints the location of the drone in a format to use with Google Earth
 def print_location():
     lon = vehicle.location.global_frame.lon
@@ -540,7 +515,6 @@ def print_location():
     # print "Airspeed: %s" % airspeed
     print "Groundspeed: %s" % groundspeed
 
-
 # Move in a box shape
 def box_maneuver():
     send_ned_velocity(2, 0, 0, 2)
@@ -551,7 +525,6 @@ def box_maneuver():
     time.sleep(2)
     send_ned_velocity(0, -2, 0, 2)
     time.sleep(2)
-
 
 # Mavlink code to set the velocity and duration of a movement
 def send_ned_velocity(velocity_x, velocity_y, velocity_z, duration):
@@ -589,7 +562,6 @@ def send_ned_velocity(velocity_x, velocity_y, velocity_z, duration):
         0, 0)    # yaw, yaw_rate (not supported yet, ignored in GCS_Mavlink)
     vehicle.send_mavlink(stopmsg) #  stop the drone after duration runs out
 
-
 def send_ned_velocity_inst(velocity_x, velocity_y, velocity_z):
     """
     Move vehicle in direction based on specified velocity vectors.
@@ -625,7 +597,6 @@ def condition_yaw(heading, relative=False): #When not relative 0 degrees is nort
     # send command to vehicle
     vehicle.send_mavlink(msg)
 
-
 # Check to see if the drone has arrived at the given location
 def wait_for_arrival(lat, lon):
     timer = 3600
@@ -645,7 +616,6 @@ def wait_for_arrival(lat, lon):
         print "=== Timeout on waiting for coordinate arrival ==="
         # end_program()
 
-
 def wait_for_altitude(alt):
     timer = 3600
     while timer > 0:
@@ -658,11 +628,9 @@ def wait_for_altitude(alt):
     if timer <= 0:
         print "== Timeout on waiting for altitude arrival =="
 
-
 # A simple pause to wait for the user to continue
 def pause_for_input():
     raw_input("\n++ PRESS ENTER TO CONTINUE ++\n")
-
 
 # Signal handler for when a keyboard interrupt occurs
 def end_program(*args):
@@ -689,7 +657,6 @@ def end_program(*args):
     # Exit the program
     print "\nTEST COMPLETE\n"
     quit()
-
 
 ######################################################################
 ##                                                                  ##

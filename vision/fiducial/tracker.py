@@ -86,7 +86,7 @@ def find_object(capture):
 
         num_of_markers = len(marker_midpoints)
         visual_center_of_markers = (-1, -1)
-        translational_vector = (-1, -1, -1)
+        translational_vector = (-1.000000, -1.000000, -1.000000)
 
         if num_of_markers == 0:
             pass
@@ -107,4 +107,4 @@ def find_object(capture):
             visual_center_of_markers = floor_midpoint(polylabel([marker_midpoints]))
             translational_vector = (avg_of_vectors(x_values), avg_of_vectors(y_values), avg_of_vectors(z_values))
 
-            return (system_id, str(translational_vector[0])[:6], str(translational_vector[1])[:6], str(translational_vector[2])[:6]))
+        return (system_id, str(translational_vector[0])[:6], str(translational_vector[1])[:6], str(translational_vector[2])[:6]))

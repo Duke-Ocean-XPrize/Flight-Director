@@ -30,7 +30,7 @@ def find_object(capture):
 
             br = (result['bottomright']['x'], result['bottomright']['y'])
 
-            borderbox_width = round(result['topleft']['x'] + result['bottomright']['x'], 1)
+            borderbox_width = round(result['bottomright']['x']) - round(result['topleft']['x'])
 
             label = result['label']
             confidence = result['confidence']
