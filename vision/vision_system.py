@@ -16,7 +16,7 @@ def find_buoy()
     try:
         yolo_ret = yolo.tracker.find_object(capture) #(system_id, x_midpoint, y_midpoint, borderbox_width)
         direction_tuple = buoy_nudge_directions(yolo_ret) #(x_dir, y_dir)
-        return (yolo_ret[0], direction_tuple[0], direction_tuple[1], yolo_ret[3]/width)
+        return (yolo_ret[0], direction_tuple[0], direction_tuple[1], 1.0 - (yolo_ret[3]/width))
     except Exception as e:
         raise Exception("Error encountered while attempting to find buoy visually: {}".format(e))
 
