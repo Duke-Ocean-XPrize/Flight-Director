@@ -83,6 +83,8 @@ def run()
             socket.send("{}/{}/{}/{}".format(marker_res[0], str(sum(x_mov_avg)/len(x_mov_avg))[:6], str(sum(y_mov_avg)/len(y_mov_avg))[:6], str(sum(z_mov_avg)/len(z_mov_avg))[:6]))
             if marker_res[3] < 0.75:
                 break
+            cap.release()
+            cv2.destroyAllWindows()
             sys.exit()
     except Exception as e:
         raise Exception("Vision_System movement protocol failed: {}".format(e))
